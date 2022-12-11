@@ -1,15 +1,10 @@
 import torch
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
 from transformers import *
-from sklearn.model_selection import train_test_split
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer, seed_everything
 from copy import deepcopy
-import pandas as pd
-import numpy as np
 import json
-
-from tabulate import tabulate
 from tqdm import tqdm
 from config import *
 from data_loader import *
