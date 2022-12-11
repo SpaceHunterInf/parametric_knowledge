@@ -4,8 +4,10 @@ from transformers import *
 from sklearn.model_selection import train_test_split
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer, seed_everything
+from copy import deepcopy
 import pandas as pd
 import numpy as np
+import json
 
 from tabulate import tabulate
 from tqdm import tqdm
@@ -101,4 +103,51 @@ def train(args, *more):
 
     print("test start...")
     #evaluate model
-    _ = evaluate_model(args, task.tokenizer, task.model, test_loader, save_path)
+    evaluate_model(args, task.tokenizer, task.model, test_loader, save_path)
+
+def evaluate_model(args, model, test_loader, save_path):
+    save_path = os.path.join(save_path,"results")
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+
+    pred_positive = {'entailment':0, 'neutral':0, 'contradiction':0}
+    gold_positive = {'entailment':0, 'neutral':0, 'contradiction':0}
+    pred_tp = {'entailment':0, 'neutral':0, 'contradiction':0}
+    
+    save = []
+
+    for batch in tqdm(test_loader):
+        with torch.no_grad:
+            logits = model(batch["input_ids"],attention_mask = batch["attention_mask"],token_type_ids = batch["token_type_ids"]).logits
+            predicted_class_id = logits.argmax().item()
+            pred_label = model.config.id2label[predicted_class_id]
+            pred_positive[pred_label] += 1
+            gold_positive[batch['label']] +=1
+            if pred_label == batch['label']:
+                pred_tp += 1
+
+            tmp_save = deepcopy(batch.data)
+            tmp_save['pred_label'] = pred_label
+    
+            save.append(tmp_save)
+    
+    class_f1 = {}
+    total_pre = 0
+    total_rec = 0
+
+    for key in pred_positive.keys():
+        pre = pred_tp[key] / pred_positive[key]
+        rec = pred_tp[key] / gold_positive[key]
+        class_f1[key] = (2* pre * rec) / (pre + rec)
+        total_pre += pre
+        total_rec += rec
+    
+    save += [pred_positive, gold_positive, pred_tp, class_f1]
+
+    total_f1 = (2 * total_pre * total_rec) / (total_pre + total_rec)
+
+    print('Total f1: {}'.format(str(total_f1)))
+
+    with open(save_path, 'w') as f:
+        f.write(json.dumps(save, indent=2))
+        f.close
