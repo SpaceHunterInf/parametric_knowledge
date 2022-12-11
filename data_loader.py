@@ -5,9 +5,11 @@ import random
 import os
 
 random.seed(557)
+id2label = {'0':'entailment', '1':'neutral', '2':'contradiction'}
+label2id = {'entailment':0, 'neutral':1, 'contradiction':2}
 
 class NLIDataset(Dataset):    
-    def __init__(self, data, args, tokenizer):          
+    def __init__(self, args, data, tokenizer):          
         self.data = data
         self.args = args
         self.tokenizer = tokenizer
@@ -16,13 +18,15 @@ class NLIDataset(Dataset):
         x = {
             'sentence1' : self.data[idx]['sentence1'],
             'sentence2' : self.data[idx]['sentence2'],
-            'label' : self.data[idx]['label']
+            'label' : self.data[idx]['gold_label']
         }
         if 'bert' in self.args['model_name']:
             input_ids, attention_mask, token_type_ids = bert_preprocess(self.tokenizer, x, self.args['max_len'])
             # DONE!
+            label = label2id[x['label']]
+            #label = torch.nn.functional.one_hot(torch.tensor([label]), num_classes=len(label2id)).to(torch.float)
             return {
-                    "label": x['label'],
+                    "label": label,
                     "input_ids": input_ids,
                     "attention_mask": attention_mask,
                     "token_type_ids": token_type_ids
@@ -58,13 +62,17 @@ def prepare_data(args, tokenizer):
         df_dev = pd.read_csv("snli_data/snli_1.0_dev.txt", sep="\t")
         df_test = pd.read_csv("snli_data/snli_1.0_test.txt", sep="\t")
     
-        df_train = df_train[['gold_label','sentence1','sentence2']]
-        df_dev = df_dev[['gold_label','sentence1','sentence2']]
-        df_test = df_test[['gold_label','sentence1','sentence2']]
+        df_train = df_train[['gold_label','sentence1','sentence2']].to_dict(orient='records')
+        df_train = [x for x in df_train if x['gold_label'] in ['entailment', 'neutral', 'contradiction']]
+        df_dev = df_dev[['gold_label','sentence1','sentence2']].to_dict(orient='records')
+        df_dev = [x for x in df_dev if x['gold_label'] in ['entailment', 'neutral', 'contradiction']]
+        df_test = df_test[['gold_label','sentence1','sentence2']].to_dict(orient='records')
+        df_test = [x for x in df_test if x['gold_label'] in ['entailment', 'neutral', 'contradiction']]
         
-    train_dataset = NLIDataset(args, df_train)
-    dev_dataset = NLIDataset(args, df_dev)
-    test_dataset = NLIDataset(args, df_test)
+    #print(df_test)
+    train_dataset = NLIDataset(args, df_train, tokenizer)
+    dev_dataset = NLIDataset(args, df_dev, tokenizer)
+    test_dataset = NLIDataset(args, df_test, tokenizer)
 
     train_loader = DataLoader(train_dataset, batch_size=args["train_batch_size"], shuffle=True, num_workers=16)
     dev_loader = DataLoader(dev_dataset, batch_size=args["dev_batch_size"], shuffle=False, num_workers=16)

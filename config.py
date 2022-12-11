@@ -19,6 +19,8 @@ def get_args():
     parser.add_argument("--GPU", type=int, default=8, help="number of gpu to use")
     parser.add_argument("--model_name", type=str, default="bert", help="use t5 or bert or gpt?")
     parser.add_argument("--mode", type=str, default="train")
+    parser.add_argument("--data", type=str, default="SNLI")
+    parser.add_argument("--max_len", type=int, default=256)
 
     args = parser.parse_args()
     return args

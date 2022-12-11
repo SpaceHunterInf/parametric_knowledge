@@ -22,24 +22,21 @@ class nli_task(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         if 'bert' in self.args['model_name']:
-            predicted_class_id = self.model.label2id[batch['label']]
-            num_labels = len(self.model.config.id2label)
-            labels = torch.nn.functional.one_hot(torch.tensor([predicted_class_id]), num_classes=num_labels).to(torch.float)
+            #print(batch)
             # result = pl.TrainResult(loss)
             # result.log('train_loss', loss, on_epoch=True)
-            loss = self.model(batch["input_ids"],attention_mask = batch["attention_mask"],token_type_ids = batch["token_type_ids"], labels=labels).loss
+            loss = self.model(batch["input_ids"],attention_mask = batch["attention_mask"],token_type_ids = batch["token_type_ids"], labels=batch['label']).loss
         return {'loss': loss, 'log': {'train_loss': loss}}
         # return result
 
     def validation_step(self, batch, batch_idx):
         if 'bert' in self.args['model_name']:
-            predicted_class_id = self.model.label2id[batch['label']]
-            num_labels = len(self.model.config.id2label)
-            labels = torch.nn.functional.one_hot(torch.tensor([predicted_class_id]), num_classes=num_labels).to(torch.float)
+            #print(batch)
             # result = pl.TrainResult(loss)
             # result.log('train_loss', loss, on_epoch=True)
-            loss = self.model(batch["input_ids"],attention_mask = batch["attention_mask"],token_type_ids = batch["token_type_ids"], labels=labels).loss
-        return {'loss': loss, 'log': {'train_loss': loss}}
+            #print((len(batch["input_ids"]), len(batch["attention_mask"]), len(batch["token_type_ids"]), len(labels)))
+            loss = self.model(batch["input_ids"],attention_mask = batch["attention_mask"],token_type_ids = batch["token_type_ids"], labels=batch['label']).loss
+        return {'val_loss': loss, 'log': {'val_loss': loss}}
         # return result
 
     def validation_epoch_end(self, outputs):
@@ -54,7 +51,7 @@ class nli_task(pl.LightningModule):
 
 def train(args, *more):
     args = vars(args)
-    args["model_name"] = args["model_checkpoint"]+args["model_name"]+"_except_domain_"+args["except_domain"]+ "_slotlang_" +str(args["slot_lang"]) + "_lr_" +str(args["lr"]) + "_epoch_" + str(args["n_epochs"]) + "_seed_" + str(args["seed"])
+    args["model_name"] = args["model_checkpoint"]+args["model_name"] + str(args["lr"]) + "_epoch_" + str(args["n_epochs"]) + "_seed_" + str(args["seed"])
     # train!
     seed_everything(args["seed"])
 
@@ -64,7 +61,7 @@ def train(args, *more):
         tokenizer = T5Tokenizer.from_pretrained(args["model_checkpoint"], bos_token="[bos]", eos_token="[eos]", sep_token="[sep]")
         model.resize_token_embeddings(new_num_tokens=len(tokenizer))
     elif "bert" in args["model_name"]:
-        model = BertForSequenceClassification.from_pretrained(args["model_checkpoint"], problem_type="multi_label_classification")
+        model = BertForSequenceClassification.from_pretrained(args["model_checkpoint"], num_labels=3)
         tokenizer = BertTokenizer.from_pretrained(args["model_checkpoint"])
         model.config.id2label = {'0':'entailment', '1':'neutral', '2':'contradiction'}
         model.config.label2id = {'entailment':0, 'neutral':1, 'contradiction':2}
@@ -88,7 +85,7 @@ def train(args, *more):
                     deterministic=True,
                     num_nodes=1,
                     #precision=16,
-                    accelerator="ddp"
+                    accelerator="cuda"
                     )
 
     trainer.fit(task, train_loader, val_loader)
@@ -146,3 +143,8 @@ def evaluate_model(args, model, test_loader, save_path):
     with open(save_path, 'w') as f:
         f.write(json.dumps(save, indent=2))
         f.close
+
+if __name__ == '__main__':
+    args = get_args()
+    if args.mode=="train":
+        train(args)
