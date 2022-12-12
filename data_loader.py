@@ -3,6 +3,7 @@ import pandas as pd
 from torch.utils.data import DataLoader, TensorDataset, Dataset
 import random
 import os
+import json
 
 random.seed(557)
 id2label = {'0':'entailment', '1':'neutral', '2':'contradiction'}
@@ -29,7 +30,9 @@ class NLIDataset(Dataset):
                     "label": label,
                     "input_ids": input_ids,
                     "attention_mask": attention_mask,
-                    "token_type_ids": token_type_ids
+                    "token_type_ids": token_type_ids,
+                    "sentence1": x['sentence1'],
+                    "sentence2": x['sentence2']
                     }
 
     def __len__(self):
@@ -58,16 +61,12 @@ def bert_preprocess(tokenizer, input_dict, length):
 
 def prepare_data(args, tokenizer):
     if args['data'] == 'SNLI':
-        df_train = pd.read_csv("snli_data/snli_1.0_train.txt", sep="\t")
-        df_dev = pd.read_csv("snli_data/snli_1.0_dev.txt", sep="\t")
-        df_test = pd.read_csv("snli_data/snli_1.0_test.txt", sep="\t")
-    
-        df_train = df_train[['gold_label','sentence1','sentence2']].to_dict(orient='records')
-        df_train = [x for x in df_train if x['gold_label'] in ['entailment', 'neutral', 'contradiction']]
-        df_dev = df_dev[['gold_label','sentence1','sentence2']].to_dict(orient='records')
-        df_dev = [x for x in df_dev if x['gold_label'] in ['entailment', 'neutral', 'contradiction']]
-        df_test = df_test[['gold_label','sentence1','sentence2']].to_dict(orient='records')
-        df_test = [x for x in df_test if x['gold_label'] in ['entailment', 'neutral', 'contradiction']]
+        with open('snli_data/filtered_train.txt', 'r') as f:
+            df_train = json.load(f)
+        with open('snli_data/filtered_dev.txt', 'r') as f:
+            df_dev = json.load(f)
+        with open('snli_data/filtered_test.txt', 'r') as f:
+            df_test = json.load(f)
         
     #print(df_test)
     train_dataset = NLIDataset(args, df_train, tokenizer)

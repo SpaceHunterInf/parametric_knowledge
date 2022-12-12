@@ -21,6 +21,7 @@ class nli_task(pl.LightningModule):
 
 
     def training_step(self, batch, batch_idx):
+        self.model.train()
         if 'bert' in self.args['model_name']:
             #print(batch)
             # result = pl.TrainResult(loss)
@@ -30,20 +31,22 @@ class nli_task(pl.LightningModule):
         # return result
 
     def validation_step(self, batch, batch_idx):
+        self.model.eval()
         if 'bert' in self.args['model_name']:
             #print(batch)
             # result = pl.TrainResult(loss)
             # result.log('train_loss', loss, on_epoch=True)
             #print((len(batch["input_ids"]), len(batch["attention_mask"]), len(batch["token_type_ids"]), len(labels)))
             loss = self.model(batch["input_ids"],attention_mask = batch["attention_mask"],token_type_ids = batch["token_type_ids"], labels=batch['label']).loss
+        print(loss)
         return {'val_loss': loss, 'log': {'val_loss': loss}}
         # return result
 
     def validation_epoch_end(self, outputs):
         val_loss_mean = sum([o['val_loss'] for o in outputs]) / len(outputs)
         # show val_loss in progress bar but only log val_loss
-        results = {'progress_bar': {'val_loss': val_loss_mean.item()}, 'log': {'val_loss': val_loss_mean.item()},
-                   'val_loss': val_loss_mean.item()}
+        results = {'progress_bar': {'val_loss': val_loss_mean.item()}, 'log': {'val_loss': val_loss_mean.item()}, 'val_loss': val_loss_mean.item()}
+        self.log("val_loss", results['val_loss'])
         return results
 
     def configure_optimizers(self):
@@ -80,7 +83,7 @@ def train(args, *more):
                     accumulate_grad_batches=args["gradient_accumulation_steps"],
                     gradient_clip_val=args["max_norm"],
                     max_epochs=args["n_epochs"],
-                    callbacks=[pl.callbacks.EarlyStopping(monitor='val_loss',min_delta=0.00, patience=5,verbose=False, mode='min')],
+                    #callbacks=[pl.callbacks.EarlyStopping(monitor='val_loss',min_delta=0.00, patience=5,verbose=False, mode='min')],
                     gpus=args["GPU"],
                     deterministic=True,
                     num_nodes=1,
@@ -97,50 +100,56 @@ def train(args, *more):
     #evaluate model
     evaluate_model(args, task.tokenizer, task.model, test_loader, save_path)
 
-def evaluate_model(args, model, test_loader, save_path):
+def evaluate_model(args, tokenizer, model, test_loader, save_path):
     save_path = os.path.join(save_path,"results")
     if not os.path.exists(save_path):
         os.makedirs(save_path)
 
-    pred_positive = {'entailment':0, 'neutral':0, 'contradiction':0}
-    gold_positive = {'entailment':0, 'neutral':0, 'contradiction':0}
-    pred_tp = {'entailment':0, 'neutral':0, 'contradiction':0}
+    pred_positive = {'entailment':1, 'neutral':1, 'contradiction':1}
+    gold_positive = {'entailment':1, 'neutral':1, 'contradiction':1}
+    pred_tp = {'entailment':1, 'neutral':1, 'contradiction':1}
     
     save = []
 
     for batch in tqdm(test_loader):
-        with torch.no_grad:
+        with torch.no_grad():
+            #print(batch)
             logits = model(batch["input_ids"],attention_mask = batch["attention_mask"],token_type_ids = batch["token_type_ids"]).logits
-            predicted_class_id = logits.argmax().item()
-            pred_label = model.config.id2label[predicted_class_id]
-            pred_positive[pred_label] += 1
-            gold_positive[batch['label']] +=1
-            if pred_label == batch['label']:
-                pred_tp += 1
+            predicted_class_ids = torch.argmax(logits, dim=1)
+            #print(predicted_class_ids)
+            for idx in range(len(predicted_class_ids)):
+                pred_label = model.config.id2label[str(predicted_class_ids[idx].item())]
+                pred_positive[pred_label] += 1
+                gold_label = model.config.id2label[str(batch['label'][idx].item())]
+                gold_positive[gold_label] +=1
+                if pred_label == gold_label:
+                    pred_tp[gold_label] += 1
 
-            tmp_save = deepcopy(batch.data)
-            tmp_save['pred_label'] = pred_label
-    
-            save.append(tmp_save)
+                tmp_save = {'sentence1': batch['sentence1'][idx], 'sentence2': batch['sentence2'][idx], 'gold_label':gold_label}
+                tmp_save['pred_label'] = pred_label
+        
+                save.append(tmp_save)
     
     class_f1 = {}
-    total_pre = 0
-    total_rec = 0
 
     for key in pred_positive.keys():
         pre = pred_tp[key] / pred_positive[key]
         rec = pred_tp[key] / gold_positive[key]
         class_f1[key] = (2* pre * rec) / (pre + rec)
-        total_pre += pre
-        total_rec += rec
     
     save += [pred_positive, gold_positive, pred_tp, class_f1]
 
-    total_f1 = (2 * total_pre * total_rec) / (total_pre + total_rec)
+    total_tp = 1
+    for key in pred_tp.keys():
+        total_tp += pred_tp[key]
 
-    print('Total f1: {}'.format(str(total_f1)))
+    total = 1
+    for key in gold_positive.keys():
+        total += gold_positive[key]
 
-    with open(save_path, 'w') as f:
+    print('Total Acc: {}'.format(str(total_tp/total)))
+
+    with open(os.path.join(save_path,'results.json'), 'w') as f:
         f.write(json.dumps(save, indent=2))
         f.close
 
