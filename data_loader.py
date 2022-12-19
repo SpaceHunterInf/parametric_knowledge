@@ -4,6 +4,8 @@ from torch.utils.data import DataLoader, TensorDataset, Dataset
 import random
 import os
 import json
+from functools import partial
+from transformers import  DataCollatorForSeq2Seq
 
 random.seed(557)
 id2label = {'0':'entailment', '1':'neutral', '2':'contradiction'}
@@ -34,6 +36,15 @@ class NLIDataset(Dataset):
                     "sentence1": x['sentence1'],
                     "sentence2": x['sentence2']
                     }
+        elif 't5' in self.args['model_name']:
+            input_text = "Infer the following 2 sentences: " +  'Premise: ' + x['sentence1'] + ' Hypothesis: ' + x['sentence2']
+            output_text = x['label']
+            model_input = {'input_text':input_text}
+            model_input['output_text'] = output_text
+            model_input['sentence1'] = x['sentence1']
+            model_input['sentence2'] = x['sentence2']
+            model_input['label'] = x['label']
+            return model_input
 
     def __len__(self):
         return len(self.data)
@@ -59,6 +70,43 @@ def bert_preprocess(tokenizer, input_dict, length):
 
     return input_ids, attention_mask, token_type_ids
 
+def generate_ukp_input(inputs, prompt, mode):
+    generated_inputs = []
+    for data in inputs:
+        input_dict = {'sentence1':data['reason'], 'sentence2':data['claim'], 'gold_label':'entailment'}
+        if mode == 'base':
+            pass
+        elif mode == 'W':
+            if data['correctLabelW0orW1'] == 0:
+                warrant = data['warrant0']
+            else:
+                warrant = data['warrant1']
+            input_dict['sentence1'] += prompt + warrant
+        elif mode == 'AW':
+            if data['correctLabelW0orW1'] == 0:
+                antiwarrant = data['warrant1']
+            else:
+                antiwarrant = data['warrant0']
+            input_dict['sentence1'] += prompt + antiwarrant
+        generated_inputs.append(input_dict)
+    return generated_inputs
+        
+
+def collate_fn(data, tokenizer):
+    batch_data = {}
+    for key in data[0]:
+        batch_data[key] = [d[key] for d in data]
+
+    input_batch = tokenizer(batch_data["input_text"], padding=True, return_tensors="pt", add_special_tokens=False, verbose=False)
+    batch_data["input_ids"] = input_batch["input_ids"]
+    batch_data["attention_mask"] = input_batch["attention_mask"]
+    output_batch = tokenizer(batch_data["output_text"], padding=True, return_tensors="pt", add_special_tokens=False, return_attention_mask=False)
+    # replace the padding id to -100 for cross-entropy
+    output_batch['input_ids'].masked_fill_(output_batch['input_ids']==tokenizer.pad_token_id, -100)
+    batch_data["label_ids"] = output_batch['input_ids']
+
+    return batch_data
+
 def prepare_data(args, tokenizer):
     if args['data'] == 'SNLI':
         with open('snli_data/filtered_train.txt', 'r') as f:
@@ -67,15 +115,33 @@ def prepare_data(args, tokenizer):
             df_dev = json.load(f)
         with open('snli_data/filtered_test.txt', 'r') as f:
             df_test = json.load(f)
+    elif args['data'] == 'UKP':
+        with open('ukp_data/filtered_train.json', 'r') as f:
+            df_train = json.load(f)
+        with open('ukp_data/filtered_dev.json', 'r') as f:
+            df_dev = json.load(f)
+        with open('ukp_data/filtered_test.json', 'r') as f:
+            df_test = json.load(f)
         
+        df_train = generate_ukp_input(df_train, args['ukp_prompt'], args['ukp_mode'])
+        df_dev = generate_ukp_input(df_dev, args['ukp_prompt'], args['ukp_mode'])
+        df_test = generate_ukp_input(df_test, args['ukp_prompt'], args['ukp_mode'])
+
+        total = df_train + df_dev + df_test
     #print(df_test)
     train_dataset = NLIDataset(args, df_train, tokenizer)
     dev_dataset = NLIDataset(args, df_dev, tokenizer)
     test_dataset = NLIDataset(args, df_test, tokenizer)
+    
+    if 't5' in args['model_name']:
+        train_loader = DataLoader(train_dataset, batch_size=args["train_batch_size"], shuffle=True, collate_fn=partial(collate_fn, tokenizer=tokenizer), num_workers=16)
+        test_loader = DataLoader(test_dataset, batch_size=args["test_batch_size"], shuffle=False, collate_fn=partial(collate_fn, tokenizer=tokenizer), num_workers=16)
+        dev_loader = DataLoader(dev_dataset, batch_size=args["dev_batch_size"], shuffle=False, collate_fn=partial(collate_fn, tokenizer=tokenizer), num_workers=16)
+    else:
+        train_loader = DataLoader(train_dataset, batch_size=args["train_batch_size"], shuffle=True, num_workers=16)
+        dev_loader = DataLoader(dev_dataset, batch_size=args["dev_batch_size"], shuffle=False, num_workers=16)
+        test_loader = DataLoader(test_dataset, batch_size=args["test_batch_size"], shuffle=False, num_workers=16)
 
-    train_loader = DataLoader(train_dataset, batch_size=args["train_batch_size"], shuffle=True, num_workers=16)
-    dev_loader = DataLoader(dev_dataset, batch_size=args["dev_batch_size"], shuffle=False, num_workers=16)
-    test_loader = DataLoader(test_dataset, batch_size=args["test_batch_size"], shuffle=False, num_workers=16)
     
     return train_loader, dev_loader, test_loader
         
