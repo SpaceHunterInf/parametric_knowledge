@@ -22,11 +22,13 @@ class nli_task(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         self.model.train()
-        if 'bert' in self.args['model_name']:
+        if 'bert' in self.args['model_name'] and not 'roberta' in self.args['model_name']:
             #print(batch)
             # result = pl.TrainResult(loss)
             # result.log('train_loss', loss, on_epoch=True)
             loss = self.model(batch["input_ids"],attention_mask = batch["attention_mask"],token_type_ids = batch["token_type_ids"], labels=batch['label']).loss
+        if 'roberta' in self.args['model_name']:
+            loss = self.model(batch['input_ids'], attention_mask = batch['attention_mask'], labels = batch['label'])
         elif 't5' in self.args['model_name']:
             loss = self.model(input_ids=batch["input_ids"],
                             attention_mask=batch["attention_mask"],
@@ -36,13 +38,17 @@ class nli_task(pl.LightningModule):
         # return result
 
     def validation_step(self, batch, batch_idx):
-        self.model.eval()
-        if 'bert' in self.args['model_name']:
+        self.model.eval()        
+        if 'bert' in self.args['model_name'] and not 'roberta' in self.args['model_name']:
             #print(batch)
             # result = pl.TrainResult(loss)
             # result.log('train_loss', loss, on_epoch=True)
-            #print((len(batch["input_ids"]), len(batch["attention_mask"]), len(batch["token_type_ids"]), len(labels)))
             loss = self.model(batch["input_ids"],attention_mask = batch["attention_mask"],token_type_ids = batch["token_type_ids"], labels=batch['label']).loss
+        if 'roberta' in self.args['model_name']:
+            print(batch['input_ids'].shape)
+            print(batch['attention_mask'].shape)
+            print(batch['label'].shape)
+            loss = self.model(batch['input_ids'], attention_mask = batch['attention_mask'], labels = batch['label'])
         elif 't5' in self.args['model_name']:
             loss = self.model(input_ids=batch["input_ids"],
                             attention_mask=batch["attention_mask"],
@@ -75,11 +81,17 @@ def train(args, *more):
         model = T5ForConditionalGeneration.from_pretrained(args["model_checkpoint"])
         tokenizer = T5Tokenizer.from_pretrained(args["model_checkpoint"], bos_token="[bos]", eos_token="[eos]", sep_token="[sep]")
         model.resize_token_embeddings(new_num_tokens=len(tokenizer))
-    elif "bert" in args["model_name"]:
+    elif "bert" in args["model_name"] and not "roberta" in args["model_name"]:
         model = BertForSequenceClassification.from_pretrained(args["model_checkpoint"], num_labels=3)
         tokenizer = BertTokenizer.from_pretrained(args["model_checkpoint"])
         model.config.id2label = {'0':'entailment', '1':'neutral', '2':'contradiction'}
         model.config.label2id = {'entailment':0, 'neutral':1, 'contradiction':2}
+    elif 'roberta' in args["model_name"]:
+        model = RobertaForSequenceClassification.from_pretrained(args['model_checkpoint'])
+        tokenizer = RobertaTokenizer.from_pretrained(args['model_checkpoint'])
+        model.config.id2label = {'0':'entailment', '1':'neutral', '2':'contradiction'}
+        model.config.label2id = {'entailment':0, 'neutral':1, 'contradiction':2}
+        
 
     task = nli_task(args, tokenizer, model)
 
@@ -137,7 +149,7 @@ def evaluate_model(args, tokenizer, model, test_loader, save_path):
                     gold_positive[gold_label] +=1
                     if pred_label == gold_label:
                         pred_tp[gold_label] += 1
-                    tmp_save = {'sentence1': batch['sentence1'][idx], 'sentence2': batch['sentence2'][idx], 'gold_label':gold_label}
+                    tmp_save = {'sentence1': batch['sentence1'][idx], 'sentence2': batch['sentence2'][idx], 'gold_label':gold_label, 'logits':logits[idx].tolist()}
                     tmp_save['pred_label'] = pred_label
                     save.append(tmp_save)
                     
@@ -176,7 +188,7 @@ def evaluate_model(args, tokenizer, model, test_loader, save_path):
     #     total += gold_positive[key]
 
     # print('Total Acc: {}'.format(str(total_tp/total)))
-
+    print(save_path)
     with open(os.path.join(save_path,'results.json'), 'w') as f:
         f.write(json.dumps(save, indent=2))
         f.close

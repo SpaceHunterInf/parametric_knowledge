@@ -23,7 +23,7 @@ class NLIDataset(Dataset):
             'sentence2' : self.data[idx]['sentence2'],
             'label' : self.data[idx]['gold_label']
         }
-        if 'bert' in self.args['model_name']:
+        if 'bert' in self.args['model_name'] and not 'roberta' in self.args['model_name']:
             input_ids, attention_mask, token_type_ids = bert_preprocess(self.tokenizer, x, self.args['max_len'])
             # DONE!
             label = label2id[x['label']]
@@ -36,6 +36,10 @@ class NLIDataset(Dataset):
                     "sentence1": x['sentence1'],
                     "sentence2": x['sentence2']
                     }
+        elif 'roberta' in self.args['model_name']:
+            input_ids, attention_mask = roberta_preprocess(self.tokenizer, x, self.args['max_len'])
+            label = label2id[x['label']]
+            return {'label':label, 'input_ids':input_ids, 'attention_mask':attention_mask,"sentence1": x['sentence1'],"sentence2": x['sentence2']}            
         elif 't5' in self.args['model_name']:
             input_text = "Infer the following 2 sentences: " +  'Premise: ' + x['sentence1'] + ' Hypothesis: ' + x['sentence2']
             output_text = x['label']
@@ -69,6 +73,21 @@ def bert_preprocess(tokenizer, input_dict, length):
     token_type_ids = torch.tensor(token_type_ids)
 
     return input_ids, attention_mask, token_type_ids
+
+def roberta_preprocess(tokenizer, input_dict, length):
+    inputs = tokenizer(input_dict['sentence1'], input_dict['sentence2'])
+    input_ids, attention_mask = inputs["input_ids"], inputs["attention_mask"]
+    
+    padding_length = length - len(input_ids)
+    pad_id = tokenizer.pad_token_id
+    input_ids = input_ids + ([pad_id] * padding_length)
+    attention_mask = attention_mask + ([0] * padding_length)
+    
+    input_ids = torch.tensor(input_ids)#.unsqueeze(0)
+    attention_mask = torch.tensor(attention_mask)#.unsqueeze(0)
+    return input_ids, attention_mask
+    
+
 
 def generate_ukp_input(inputs, prompt, mode):
     generated_inputs = []
