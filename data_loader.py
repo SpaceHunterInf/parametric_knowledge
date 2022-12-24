@@ -18,6 +18,7 @@ class NLIDataset(Dataset):
         self.tokenizer = tokenizer
      
     def __getitem__(self, idx):
+        #print(self.data[idx])
         x = {
             'sentence1' : self.data[idx]['sentence1'],
             'sentence2' : self.data[idx]['sentence2'],
@@ -134,7 +135,14 @@ def prepare_data(args, tokenizer):
             df_dev = json.load(f)
         with open('snli_data/filtered_test.txt', 'r') as f:
             df_test = json.load(f)
-    elif args['data'] == 'UKP':
+    elif args['data'] == 'UKP' and args['mode'] == 'train':
+        with open('ukp_data/ukp_train.json', 'r') as f:
+            df_train = json.load(f)
+        with open('ukp_data/ukp_dev.json', 'r') as f:
+            df_dev = json.load(f)
+        with open('ukp_data/ukp_test.json', 'r') as f:
+            df_test = json.load(f)
+    elif args['data'] == 'UKP' and args['mode'] == 'test':
         with open('ukp_data/filtered_train.json', 'r') as f:
             df_train = json.load(f)
         with open('ukp_data/filtered_dev.json', 'r') as f:

@@ -21,12 +21,12 @@ def get_args():
     parser.add_argument("--length", type=int, default=50, help="Batch size for validation")
     parser.add_argument("--max_history", type=int, default=2, help="max number of turns in the dialogue")
     parser.add_argument("--GPU", type=int, default=8, help="number of gpu to use")
-    parser.add_argument("--model_name", type=str, default="roberta", help="use t5 or bert or gpt?")
+    parser.add_argument("--model_name", type=str, default="bert_finetuned", help="use t5 or bert or gpt?")
     parser.add_argument("--mode", type=str, default="train")
     parser.add_argument("--data", type=str, default="SNLI")
     parser.add_argument("--max_len", type=int, default=256)
     parser.add_argument("--ukp_mode", type=str, default="base")
-    parser.add_argument("--ukp_prompt", type=str, default=" ")
+    parser.add_argument("--ukp_prompt", type=str, default="Given that ")
 
     args = parser.parse_args()
     return args

@@ -28,12 +28,13 @@ class nli_task(pl.LightningModule):
             # result.log('train_loss', loss, on_epoch=True)
             loss = self.model(batch["input_ids"],attention_mask = batch["attention_mask"],token_type_ids = batch["token_type_ids"], labels=batch['label']).loss
         if 'roberta' in self.args['model_name']:
-            loss = self.model(batch['input_ids'], attention_mask = batch['attention_mask'], labels = batch['label'])
+            loss = self.model(batch['input_ids'], attention_mask = batch['attention_mask'], labels = batch['label']).loss
         elif 't5' in self.args['model_name']:
             loss = self.model(input_ids=batch["input_ids"],
                             attention_mask=batch["attention_mask"],
                             labels=batch["label_ids"]
                             ).loss
+        self.log('train_loss', loss)
         return {'loss': loss, 'log': {'train_loss': loss}}
         # return result
 
@@ -45,16 +46,17 @@ class nli_task(pl.LightningModule):
             # result.log('train_loss', loss, on_epoch=True)
             loss = self.model(batch["input_ids"],attention_mask = batch["attention_mask"],token_type_ids = batch["token_type_ids"], labels=batch['label']).loss
         if 'roberta' in self.args['model_name']:
-            print(batch['input_ids'].shape)
-            print(batch['attention_mask'].shape)
-            print(batch['label'].shape)
-            loss = self.model(batch['input_ids'], attention_mask = batch['attention_mask'], labels = batch['label'])
+            # print(batch['input_ids'].shape)
+            # print(batch['attention_mask'].shape)
+            # print(batch['label'].shape)
+            loss = self.model(batch['input_ids'], attention_mask = batch['attention_mask'], labels = batch['label']).loss
         elif 't5' in self.args['model_name']:
             loss = self.model(input_ids=batch["input_ids"],
                             attention_mask=batch["attention_mask"],
                             labels=batch["label_ids"]
                             ).loss
         #print(loss)
+        self.log('val_loss', loss)
         return {'val_loss': loss, 'log': {'val_loss': loss}}
         # return result
 
@@ -87,7 +89,7 @@ def train(args, *more):
         model.config.id2label = {'0':'entailment', '1':'neutral', '2':'contradiction'}
         model.config.label2id = {'entailment':0, 'neutral':1, 'contradiction':2}
     elif 'roberta' in args["model_name"]:
-        model = RobertaForSequenceClassification.from_pretrained(args['model_checkpoint'])
+        model = RobertaForSequenceClassification.from_pretrained(args['model_checkpoint'], num_labels=3)
         tokenizer = RobertaTokenizer.from_pretrained(args['model_checkpoint'])
         model.config.id2label = {'0':'entailment', '1':'neutral', '2':'contradiction'}
         model.config.label2id = {'entailment':0, 'neutral':1, 'contradiction':2}
@@ -134,12 +136,15 @@ def evaluate_model(args, tokenizer, model, test_loader, save_path):
     pred_tp = {'entailment':1, 'neutral':1, 'contradiction':1}
     
     save = []
-
+    model.to('cuda')
     for batch in tqdm(test_loader):
         with torch.no_grad():
             #print(batch)
             if 'bert' in args['model_name']:
-                logits = model(batch["input_ids"].to(device='cuda'),attention_mask = batch["attention_mask"].to(device='cuda'),token_type_ids = batch["token_type_ids"].to(device='cuda')).logits
+                if 'roberta' in args['model_name']:
+                    logits = model(batch["input_ids"].to(device='cuda'),attention_mask = batch["attention_mask"].to(device='cuda')).logits
+                else:
+                    logits = model(batch["input_ids"].to(device='cuda'),attention_mask = batch["attention_mask"].to(device='cuda'),token_type_ids = batch["token_type_ids"].to(device='cuda')).logits
                 predicted_class_ids = torch.argmax(logits, dim=1)
                 #print(predicted_class_ids)
                 for idx in range(len(predicted_class_ids)):
@@ -169,25 +174,25 @@ def evaluate_model(args, tokenizer, model, test_loader, save_path):
                     save.append(tmp_save)
         
                 
-    
-    # class_f1 = {}
+    if args['data'] == 'SNLI':
+        class_f1 = {}
 
-    # for key in pred_positive.keys():
-    #     pre = pred_tp[key] / pred_positive[key]
-    #     rec = pred_tp[key] / gold_positive[key]
-    #     class_f1[key] = (2* pre * rec) / (pre + rec)
-    
-    # save += [pred_positive, gold_positive, pred_tp, class_f1]
+        for key in pred_positive.keys():
+            pre = pred_tp[key] / pred_positive[key]
+            rec = pred_tp[key] / gold_positive[key]
+            class_f1[key] = (2* pre * rec) / (pre + rec)
+        
+        save += [pred_positive, gold_positive, pred_tp, class_f1]
 
-    # total_tp = 1
-    # for key in pred_tp.keys():
-    #     total_tp += pred_tp[key]
+        total_tp = 1
+        for key in pred_tp.keys():
+            total_tp += pred_tp[key]
 
-    # total = 1
-    # for key in gold_positive.keys():
-    #     total += gold_positive[key]
+        total = 1
+        for key in gold_positive.keys():
+            total += gold_positive[key]
 
-    # print('Total Acc: {}'.format(str(total_tp/total)))
+        print('Total Acc: {}'.format(str(total_tp/total)))
     print(save_path)
     with open(os.path.join(save_path,'results.json'), 'w') as f:
         f.write(json.dumps(save, indent=2))
